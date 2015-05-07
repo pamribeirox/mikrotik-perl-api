@@ -89,26 +89,32 @@ sub write_len {
     elsif ($len < 0x200000)
     {
         $len |= 0xC00000;
-        print $sock chr(($len >> 8) & 0xFF);
-        print $sock chr(($len >> 8) & 0xFF);
-        print $sock chr($len & 0xFF);
-    }
-    elsif ($len < 0x10000000)
-    {
-        $len |= 0xE0000000;
-        print $sock chr(($len >> 8) & 0xFF);
-        print $sock chr(($len >> 8) & 0xFF);
+        print $sock chr(($len >> 16) & 0xFF);
         print $sock chr(($len >> 8) & 0xFF);
         print $sock chr($len & 0xFF);
     }
     elsif ($len < 0x10000000)
     {
         $len |= 0xE0000000;
-        print $sock chr(($len >> 8) & 0xFF);
-        print $sock chr(($len >> 8) & 0xFF);
+        print $sock chr(($len >> 24) & 0xFF);
+        print $sock chr(($len >> 16) & 0xFF);
         print $sock chr(($len >> 8) & 0xFF);
         print $sock chr($len & 0xFF);
     }
+    else
+    {
+		print $sock chr(0xF0);
+        print $sock chr(($len >> 24) & 0xFF);
+        print $sock chr(($len >> 16) & 0xFF);
+        print $sock chr(($len >> 8) & 0xFF);
+        print $sock chr($len & 0xFF);
+    }
+}
+
+sub read_byte{
+	my $line;
+	$sock->recv($line,1);
+	return ord($line);
 }
 
 sub read_len {
@@ -116,47 +122,47 @@ sub read_len {
     {
         print "start read_len\n";
     }
-    my $line;
-    $sock->recv($line,1);
-    my($len) = ord($line);
-    if ($len & 0x80)
-    {
-        return $len;
+	
+    my $len = read_byte();
+	
+    if (($len & 0x80) == 0x00)
+	{
+		return $len
     }
-    elsif ($len & 0xC0 == 0x80)
-    {
-        $len &= !0xC0;
+	elsif (($len & 0xC0) == 0x80)
+	{
+        $len &= ~0x80;
         $len <<= 8;
-        $len += read_len();
+        $len += read_byte();
     }
-    elsif ($len & 0xE0 == 0xC0)
+    elsif (($len & 0xE0) == 0xC0)
     {
-        $len &= !0xE0;
+		$len &= ~0xC0;
         $len <<= 8;
-        $len += read_len();
-        $len <<=8;
-        $len += read_len();
+        $len += read_byte();
+        $len <<= 8;
+        $len += read_byte();
     }
-    elsif ($len & 0xF0 == 0xE0)
+    elsif (($len & 0xF0) == 0xE0)
     {
-        $len &= !0xF0;
+        $len &= ~0xE0;
         $len <<= 8;
-        $len += read_len();
-        $len <<=8;
-        $len += read_len();        
-        $len <<=8;
-        $len += read_len();        
+        $len += read_byte();
+        $len <<= 8;
+        $len += read_byte();       
+        $len <<= 8;
+        $len += read_byte();       
     }
-    elsif ($len & 0xF8 == 0xF0)
+    elsif (($len & 0xF8) == 0xF0)
     {
-        $len = read_len();
+        $len = read_byte();
         $len <<= 8;
-        $len += read_len();
-        $len <<=8;
-        $len += read_len();        
-        $len <<=8;
-        $len += read_len();    
-    }
+        $len += read_byte();
+        $len <<= 8;
+        $len += read_byte();       
+        $len <<= 8;
+        $len += read_byte();  
+	} 
     if ($debug > 4)
     {
         print "read_len got $len\n";
@@ -179,6 +185,7 @@ sub read_word {
             # append to $ret_line, in case we didn't get the whole word and are going round again
             $ret_line .= $line;
             my $got_len = length($line);
+			
             if ($got_len < $len)
             {
                 # we didn't get the whole word, so adjust length and try again
@@ -238,10 +245,11 @@ sub talk
     {
         foreach my $line (@reply)
         {
-            if ($line =~ /^=(\S+)=(.*)/)
+            if ($line =~ /^=(\S+)=(.*)/s)
             {
                 $attrs[$i]{$1} = $2;
             }
+			
         }
         if ($retval > 0)
         {
@@ -359,6 +367,30 @@ sub mtik_cmd
     foreach my $attr (keys (%attrs))
     {
         push(@command,'=' . $attr . '=' . $attrs{$attr});
+    }
+    my($retval,@results) = talk(\@command);
+    if ($retval > 1)
+    {
+        $error_msg = $results[0]{'message'};
+    }
+    return ($retval,@results);
+}
+
+sub mtik_query
+{
+    my($cmd) = shift;
+    my(%attrs) = %{(shift)};
+	my(%queries) = %{(shift)};
+    $error_msg = '';
+    my(@command);
+    push(@command,$cmd);
+    foreach my $attr (keys (%attrs))
+    {
+        push(@command,'=' . $attr . '=' . $attrs{$attr});
+    }
+    foreach my $query (keys (%queries))
+    {
+        push(@command,'?' . $query . '=' . $queries{$query});
     }
     my($retval,@results) = talk(\@command);
     if ($retval > 1)
