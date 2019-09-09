@@ -293,18 +293,10 @@ sub login
         return 0;
     }
     my(@command);
-    push(@command,'/login');
-    my($retval,@results) = talk(\@command);
-    my($chal) = pack("H*",$results[0]{'ret'});
-    my($md) = new Digest::MD5;
-    $md->add(chr(0));
-    $md->add($passwd);
-    $md->add($chal);
-    my($hexdigest) = $md->hexdigest;
-    undef(@command);
+    my($retval,@results);
     push(@command, '/login');
     push(@command, '=name=' . $username);
-    push(@command, '=response=00' . $hexdigest);
+    push(@command, '=password=' . $passwd);
     ($retval,@results) = &talk(\@command);
     if ($retval > 1)
     {
